@@ -11,6 +11,7 @@ include AirbrakeSymbolicate
 
 Airbrake.account = ENV['AIRBRAKE_ACCOUNT'] || ARGV[0]
 Airbrake.auth_token = ENV['AIRBRAKE_AUTH_TOKEN'] || ARGV[1]
+stack_trace_file = ARGV[2]
 
 unless Airbrake.site && Airbrake.auth_token
   puts "\tUsage: airbrake_symbolicate airbrake_account airbrake_auth_token"
@@ -24,11 +25,33 @@ end
 DIVIDER = "*" * 40
 META_FORMAT = "%20s: %s"
 
+if stack_trace_file && false
+  if bt = Symbolicator.symbolicated_backtrace(e)
+    puts "Backtrace:"
+    bt.each do |l|
+      if STDOUT.tty?
+        # symbolicated lines start with [
+        puts l.send(l[/^\[/] ? :red : :green)
+      else
+        puts l
+      end
+    end
+  else
+    puts "\tNo dSYM found"
+  end
+end
+
 page = 1
 begin
   errors = Error.find(:all, :params => {:page => page})
   errors.each do |e|
-    e.reload
+    begin
+      e.reload
+    rescue
+      next
+    end
+
+    next unless e.app_version
 
     puts DIVIDER
     puts META_FORMAT % ['message', e.error_message]
@@ -41,7 +64,7 @@ begin
       puts "Backtrace:"
       bt.each do |l|
         if STDOUT.tty?
-          # symbolicated lines start with [
+          # symbolicated lines start with
           puts l.send(l[/^\[/] ? :red : :green)
         else
           puts l
@@ -52,4 +75,4 @@ begin
     end
   end
   page += 1
-end until errors.empty?
+end until errors.count == 0

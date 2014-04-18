@@ -1,11 +1,12 @@
 require 'active_resource'
+
 module AirbrakeSymbolicate
   class DsymFinder
     @@dsyms = nil
 
     class << self
       def dsym_for_error(error)
-        find_dsyms  unless @@dsyms
+        find_dsyms unless @@dsyms
 
         @@dsyms[error.app_version]
       end
@@ -18,8 +19,9 @@ module AirbrakeSymbolicate
         @@dsyms = {}
 
         files = `mdfind -name ".xcarchive"`.split("\n")
+        files.concat(`find /Users/aschepis/Library/Developer/Xcode/Archives/ -name "*.xcarchive"`.split("\n")).uniq!
         files.each do |f|
-          info = `find '#{f}/Products' -name Info.plist`.chomp
+          info = `find '#{f}/Products' -name Info.plist`.chomp.split("\n").first
 
           short_version = plist_val(info, 'CFBundleShortVersionString')
           long_version = plist_val(info, 'CFBundleVersion')
@@ -50,10 +52,16 @@ module AirbrakeSymbolicate
         end
       end
 
+      def symbolicated_backtrace(error)
+        if dsym = DsymFinder.dsym_for_error(error)
+          error.backtrace.line.map {|l| Symbolicator.symbolicate_line(dsym, l)}
+        end
+      end
+
       def symbolicate_line(dsym_file, line)
         binname = File.basename(dsym_file)
         if line[/#{binname}/] && loc = line[/0x\w+/]
-          `/usr/bin/atos -arch armv7 -o "#{dsym_file}" #{loc}`.sub(/^[-_]+/, '')
+          `xcrun atos -arch armv7 -o "#{dsym_file}" #{loc}`.sub(/^[-_]+/, '')
         else
           line
         end.chomp
@@ -89,13 +97,14 @@ module AirbrakeSymbolicate
   end
 
   class Error < Airbrake
-
     def app_version
-      if environment.respond_to?(:app_version)
-        environment.app_version
+      if self.environment.respond_to?(:app_version)
+        self.environment.app_version
       elsif environment.respond_to?(:application_version)
-        environment.application_version
+        self.environment.application_version
       end
+    rescue
+      ""
     end
 
   end
